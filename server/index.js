@@ -1,65 +1,73 @@
-const express = require('express');
-const multer = require('multer');
-const docxtoPDF = require('docx-pdf');
-const path = require('path');
-const cors = require('cors');
-const fs = require('fs');
+const axios = require("axios");
+const FormData = require("form-data");
+const fs = require("fs");
+const path = require("path");
 
-const app = express();
-const port = process.env.PORT || 3000;
-
-app.use(cors());
-
-// -------- Serve frontend --------
-const frontendPath = path.join(__dirname, "../client/dist");
-app.use(express.static(frontendPath));
-
-// -------- Ensure folders exist --------
-const uploadDir = path.join(__dirname, 'uploads');
-const filesDir = path.join(__dirname, 'files');
-
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir);
-
-// -------- Multer setup --------
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, file.originalname);
-  }
-});
-
-const upload = multer({ storage });
-
-// -------- API route --------
-app.post('/convertfile', upload.single('file'), (req, res) => {
+app.post("/convertfile", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+      return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const outputPath = path.join(filesDir, `${req.file.originalname}.pdf`);
+    // 1) Upload DOCX to PDF.co
+    const uploadForm = new FormData();
+    uploadForm.append(
+      "file",
+      fs.createReadStream(req.file.path),
+      req.file.originalname
+    );
 
-    docxtoPDF(req.file.path, outputPath, (err) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ message: 'Error converting docx to PDF' });
+    const uploadResp = await axios.post(
+      "https://api.pdf.co/v1/file/upload",
+      uploadForm,
+      {
+        headers: {
+          ...uploadForm.getHeaders(),
+          "x-api-key": process.env.PDFCO_API_KEY,
+        },
       }
-      res.download(outputPath);
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    );
+
+    if (uploadResp.data.error) {
+      return res.status(500).json({ message: uploadResp.data.message });
+    }
+
+    const uploadedFileUrl = uploadResp.data.url;
+
+    // 2) Convert DOCX → PDF
+    const convertResp = await axios.post(
+      "https://api.pdf.co/v1/pdf/convert/from/doc",
+      {
+        url: uploadedFileUrl,
+        async: false,
+        name: req.file.originalname.replace(/\.[^/.]+$/, ".pdf"),
+      },
+      {
+        headers: {
+          "x-api-key": process.env.PDFCO_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (convertResp.data.error) {
+      return res.status(500).json({ message: convertResp.data.message });
+    }
+
+    // 3) Download converted PDF and send to browser
+    const pdfUrl = convertResp.data.url;
+    const pdfStream = await axios.get(pdfUrl, { responseType: "stream" });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${req.file.originalname.replace(/\.[^/.]+$/, "")}.pdf"`
+    );
+
+    pdfStream.data.pipe(res);
+
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ message: "Conversion failed" });
   }
-});
-
-// -------- React fallback --------
-app.get("/*", (req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
-});
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
 });
