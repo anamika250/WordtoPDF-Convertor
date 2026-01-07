@@ -21,11 +21,9 @@ function Home() {
         formData.append("file", selectedFile);
         try {
           const response = await axios.post(
-            "http://localhost:3000/convertFile",
+            "/convertfile",
             formData,
-            {
-              responseType: "blob",
-            }
+            { responseType: "blob" }
           );
           console.log(response.data);
           const url = window.URL.createObjectURL(new Blob([response.data]));
