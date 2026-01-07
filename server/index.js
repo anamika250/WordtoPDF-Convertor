@@ -5,9 +5,17 @@ const path = require('path')
 const cors = require('cors');
 
 const app = express()
-const port = 3000
+const port = process.env.PORT || 3000;
 
 app.use(cors());
+
+const fs = require('fs');
+
+const uploadDir = path.join(__dirname, 'uploads');
+const filesDir = path.join(__dirname, 'files');
+
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir);
 
 // Setting up file storage
 const storage = multer.diskStorage({
