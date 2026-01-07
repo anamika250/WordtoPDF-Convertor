@@ -1,63 +1,65 @@
-const express = require('express')
-const multer = require('multer')
-var docxtoPDF = require('docx-pdf')
-const path = require('path')
+const express = require('express');
+const multer = require('multer');
+const docxtoPDF = require('docx-pdf');
+const path = require('path');
 const cors = require('cors');
+const fs = require('fs');
 
-const app = express()
+const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 
-const fs = require('fs');
+// -------- Serve frontend --------
+const frontendPath = path.join(__dirname, "../client/dist");
+app.use(express.static(frontendPath));
 
+// -------- Ensure folders exist --------
 const uploadDir = path.join(__dirname, 'uploads');
 const filesDir = path.join(__dirname, 'files');
 
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir);
 
-// Setting up file storage
+// -------- Multer setup --------
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/')
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-
-    cb(null, file.originalname)
+    cb(null, file.originalname);
   }
-})
+});
 
-const upload = multer({ storage: storage })
+const upload = multer({ storage });
 
-app.post('/convertfile', upload.single('file'), function (req, res, next) {
-  try{
-        if(!req.file){
-          return res.status(400).json({
-            message: 'No file uploaded'
-        });
-        }
-    
-    let outputPath = path.join(__dirname, 'files', `${req.file.originalname}.pdf`)
-    docxtoPDF(req.file.path, outputPath , (err,result) => {
-        if(err){
-          console.log(err);
-          return res.status(500).json({
-            message: 'Error converting docx to PDF'
-        });    
-        }
-        res.download(outputPath,()=>{
-            console.log('File downloaded');
-        })
+// -------- API route --------
+app.post('/convertfile', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const outputPath = path.join(filesDir, `${req.file.originalname}.pdf`);
+
+    docxtoPDF(req.file.path, outputPath, (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Error converting docx to PDF' });
+      }
+      res.download(outputPath);
     });
-  }catch(error){
-        console.log(error);
-        res.status(500).json({
-            message: 'Internal Server Error'
-        });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Internal Server Error' });
   }
-})
+});
+
+// -------- React fallback --------
+app.get("*", (req, res) => {
+  res.sendFile(path.join(frontendPath, "index.html"));
+});
 
 app.listen(port, () => {
-  console.log(`Server is listening on port ${port}`)
-})
+  console.log(`Server running on port ${port}`);
+});
